@@ -152,12 +152,14 @@ public:
 		GROUP_ALL = 0xFF,
 	}group_t;
 	
+  int begin(unsigned long br=9600, int rx=2, int tx=3);
+
 	int setBaudRate(unsigned long br);
 	int setIOMode(io_mode_t mode);
 	int resetIO(uint8_t *ios=0, uint8_t len=1);
 	int setPulseWidth(uint8_t level);
 	int setAutoLoad(uint8_t *records=0, uint8_t len = 0);
-    int disableAutoLoad();
+  int disableAutoLoad();
 	int restoreSystemSettings();
 	int checkSystemSettings(uint8_t* buf);
 	int recognize(uint8_t *buf, int timeout = VR_DEFAULT_TIMEOUT);

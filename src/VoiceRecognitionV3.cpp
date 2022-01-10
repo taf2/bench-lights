@@ -1157,20 +1157,14 @@ void VR :: send_pkt(uint8_t cmd, uint8_t subcmd, uint8_t *buf, uint8_t len) {
            len --> length of buf
 */
 void VR :: send_pkt(uint8_t cmd, uint8_t *buf, uint8_t len) {
-  //Serial.println("send_pkt\n");
 	while (available()) {
 		read();// replace flush();
 	}
-	int r = write(FRAME_HEAD);
-  //Serial.printf("FRAME_HEAD: %d\n", r);
-	r = write(len+2);
-  //Serial.printf("write: %d\n", r);
-	r = write(cmd);
-  //Serial.printf("write: %d\n", r);
-	r = write(buf, len);
-  //Serial.printf("write: %d\n", r);
-	r = write(FRAME_END);
-  //Serial.printf("FRAME_END: %d\n", r);
+	write(FRAME_HEAD);
+	write(len+2);
+	write(cmd);
+	write(buf, len);
+	write(FRAME_END);
   Serial2.flush();
 }
 
@@ -1202,7 +1196,6 @@ int VR :: receive_pkt(uint8_t *buf, uint16_t timeout)
 	int ret = receive(buf, 2, timeout);
 
 	if (ret != 2) {
-    Serial.printf("not 2 on receive: %d\n", ret);
 		return -1;
 	}
 	if (buf[0] != FRAME_HEAD) {
@@ -1269,4 +1262,45 @@ size_t VR::write(uint8_t byte) {
 }
 size_t VR::write(const uint8_t* buffer, size_t size) {
   return Serial2.write(buffer, size);
+}
+int VR::begin(unsigned long br, int rx, int tx) {
+  Serial2.begin(br, SERIAL_8N2, rx, tx);//BOSS_SERIAL_RX, BOSS_SERIAL_TX);
+  Serial2.flush();
+  int nextParityType = 1;
+  int parityTypes[] = { SERIAL_5N1, SERIAL_6N1, SERIAL_7N1, SERIAL_8N1, SERIAL_5N2, SERIAL_6N2, SERIAL_7N2,
+                        SERIAL_8N2, SERIAL_5E1, SERIAL_6E1, SERIAL_7E1, SERIAL_8E1, SERIAL_5E2, SERIAL_6E2,
+                        SERIAL_7E2, SERIAL_8E2, SERIAL_5O1, SERIAL_6O1, SERIAL_7O1, SERIAL_8O1, SERIAL_5O2,
+                        SERIAL_6O2, SERIAL_7O2, SERIAL_8O2 };
+  // rx: 21, tx: 32
+  int nextParityToTry = parityTypes[nextParityType];
+
+  if (this->clear() != 0) {
+    while (1) {
+      Serial.printf("\n\ntry next parity: %d\n", nextParityType);
+      for (int i = 0; i < 2; ++i) {
+        int flip = tx;
+        tx = rx;
+        rx = flip;
+
+        Serial.printf("\ttry rx: %d, tx: %d\n", rx, tx);
+        Serial2.end();
+        Serial2.begin(9600, nextParityToTry, rx, tx);
+        Serial2.flush();
+        if (this->clear() != 0) {
+          Serial.println("Not find VoiceRecognitionModule.");
+          Serial.println("Please check connection and restart Arduino.");
+          delay(1000);
+          if (nextParityType > 24) {
+            nextParityType = 0;
+            Serial.println("Tried all combinations! Failed - double check your tx and rx pins are connected - you need a 5v GPIO so maybe voltage divider is needed?\n");
+            return -1;
+          }
+        } else {
+          break;
+        }
+      }
+      nextParityToTry = parityTypes[nextParityType++];
+    }
+  }
+  return 0;
 }

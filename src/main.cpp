@@ -62,7 +62,9 @@ void setBlueAll() {
 void setWhiteAll(short mag=255) {
   pixels->clear(); 
   for (int i = 0; i < LED_COUNT; ++i) {
-    setWhite(i, mag);
+    if (i % 2 == 0) {
+      setWhite(i, mag);
+    }
   }
   pixels->show(); 
 }
@@ -101,47 +103,7 @@ void setup() {
  // delay(3000);
   //myVR.begin(9600);
   Serial.println("start serial2\n");
-  Serial2.begin(9600, SERIAL_8N2, 21, 32);//BOSS_SERIAL_RX, BOSS_SERIAL_TX);
-  Serial2.flush();
-  delay(1000);
-  int nextParityType = 1;
-  int parityTypes[] = { SERIAL_5N1, SERIAL_6N1, SERIAL_7N1, SERIAL_8N1, SERIAL_5N2, SERIAL_6N2, SERIAL_7N2,
-                        SERIAL_8N2, SERIAL_5E1, SERIAL_6E1, SERIAL_7E1, SERIAL_8E1, SERIAL_5E2, SERIAL_6E2,
-                        SERIAL_7E2, SERIAL_8E2, SERIAL_5O1, SERIAL_6O1, SERIAL_7O1, SERIAL_8O1, SERIAL_5O2,
-                        SERIAL_6O2, SERIAL_7O2, SERIAL_8O2 };
-  int rx = BOSS_SERIAL_RX;
-  int tx = BOSS_SERIAL_TX;
-  // rx: 21, tx: 32
-  int nextParityToTry = parityTypes[nextParityType];
-
-  if (myVR.clear() != 0) {
-    while (1) {
-      Serial.printf("\n\ntry next parity: %d\n", nextParityType);
-      for (int i = 0; i < 2; ++i) {
-        int flip = tx;
-        tx = rx;
-        rx = flip;
-
-        Serial.printf("\ttry rx: %d, tx: %d\n", rx, tx);
-        Serial2.end();
-        Serial2.begin(9600, nextParityToTry, rx, tx);
-        Serial2.flush();
-        if (myVR.clear() != 0) {
-          Serial.println("Not find VoiceRecognitionModule.");
-          Serial.println("Please check connection and restart Arduino.");
-          delay(1000);
-          if (nextParityType > 24) {
-            nextParityType = 0;
-            Serial.println("Tried all combinations! Failed\n");
-            delay(100000);
-          }
-        } else {
-          break;
-        }
-      }
-      nextParityToTry = parityTypes[nextParityType++];
-    }
-  }
+  myVR.begin(9600, 21, 32);
 
   for (int i = 0; i < 6; ++i) {
     if (myVR.load((uint8_t)i) < 0) {
@@ -157,6 +119,113 @@ int lightMode = 0;
 uint8_t buf[64];
 
 void loop() {
+  if (myVR.recognize(buf, 50) > 0) {
+    uint64_t now = millis();
+
+    if (bossListening) {
+      switch (buf[1]) {
+      case 1: // lights on
+        lightMode  = 1;
+        bossListenStart = 0;
+        bossListening = false;
+        break;
+      case 2: // lights off
+        lightMode  = 2;
+        bossListenStart = 0;
+        bossListening = false;
+        break;
+      case 3: // rainbows
+        lightMode  = 3;
+        bossListenStart = 0;
+        bossListening = false;
+        break;
+      case 4: // dim 
+        lightMode  = 4;
+        bossListenStart = 0;
+        bossListening = false;
+        break;
+      case 5: // bright 
+        lightMode  = 4;
+        bossListenStart = 0;
+        bossListening = false;
+        break;
+      default:
+        bossListenStart = 0;
+        bossListening = false;
+        lightMode = 10; // don't understand
+      }
+      digitalWrite(BOSS_LISTEN, LOW);
+      
+    } else {
+      switch (buf[1]) {
+      case 0: // wake word boss on
+        lightMode       = 0;
+        bossListenStart = now;
+        bossListening   = true;
+        digitalWrite(BOSS_LISTEN, HIGH);
+        break;
+      default:
+        bossListenStart = 0;
+        bossListening = false;
+        lightMode = 11; // don't understand
+        digitalWrite(BOSS_LISTEN, LOW);
+        Serial.printf("not in boss mode you said: %d\n", buf[1]);
+      }
+    }
+    int delta = (now - (now - bossListenStart));
+    Serial.println(delta);
+    if ( delta > 5000) {
+      Serial.println("boss timeout");
+      // over 10 seconds no input reset stop boss mode
+      bossListenStart = 0;
+      bossListening = false;
+      digitalWrite(BOSS_LISTEN, LOW);
+    }
+  } else {
+    lightMode = -1;
+  }
+
+  if (lightMode > -1) {
+    switch (lightMode) {
+    case 0: // wake mode
+      digitalWrite(BOSS_LISTEN, HIGH);
+      break;
+    case 1: // turn the lights on
+      digitalWrite(BOSS_LISTEN, LOW);
+      setWhiteAll();
+      break;
+    case 2: // turn the lights off
+      digitalWrite(BOSS_LISTEN, LOW);
+      setOffAll();
+      break;
+    case 3: // rainboes
+      digitalWrite(BOSS_LISTEN, LOW);
+      lightTestCycle();
+      break;
+    case 4: // dim - which i was gonna just use as off
+      digitalWrite(BOSS_LISTEN, LOW);
+      setOffAll();
+      break;
+    case 5: // bright - but not sure yet
+      digitalWrite(BOSS_LISTEN, LOW);
+      setWhiteAll();
+      break;
+    default:
+      digitalWrite(BOSS_LISTEN, LOW);
+      Serial.printf("I didnt' understand you! %d\n", lightMode);
+      break;
+    }
+    // send mode data and clear
+    /*Serial.println("");
+    if (lightMode == 0) { // send moss mode
+      Serial.print(255);
+    } else {
+      Serial.print(lightMode);
+    }
+    Serial.println("");
+    */
+  }
+
 /*  String data = Serial2.readString();
   if (data.length()) {
     int cmd = data.toInt();
@@ -216,49 +285,16 @@ void lightTestCycle() {
 		} else if (counter == 5) { // blue
       pixels->setPixelColor(i, pixels->Color(0, 0, 150));
 		} else if (counter == 6) { // purple
-      pixels->setPixelColor(i, pixels->Color(150, 150, 0));
+      pixels->setPixelColor(i, pixels->Color(100, 150, 100));
 		} else {
+      pixels->setPixelColor(i, pixels->Color(250, 150, 150));
 			counter = 0;
 		}
 		if (counter > 0) {
 			delay(5);
+      pixels->show();   // Send the updated pixel colors to the hardware.
 		}
 		continue;
-
-    // pixels.Color() takes RGB values, from 0,0,0 up to 255,255,255
-    // Here we're using a moderately bright green color:
-    if (i == 0) {
-      Serial.println("set green");
-      pixels->setPixelColor(i, pixels->Color(0, 150, 0));
-    } else if (i == 1) {
-      Serial.println("set red");
-      pixels->setPixelColor(i, pixels->Color(150, 0, 0));
-    } else if (i == 2) {
-      Serial.println("set blue");
-      pixels->setPixelColor(i, pixels->Color(0, 0, 150));
-    } else if (i == 3) {
-      Serial.println("set purple");
-      pixels->setPixelColor(i, pixels->Color(0, 150, 150));
-    } else if (i == 4) {
-      Serial.println("set orange");
-      pixels->setPixelColor(i, pixels->Color(150, 150, 0));
-    } else if (i == 5) {
-      Serial.println("set orange");
-      pixels->setPixelColor(i, pixels->Color(150, 150, 0));
-    } else if (i == 6) {
-      Serial.println("set orange");
-      pixels->setPixelColor(i, pixels->Color(150, 150, 0));
-    } else if (i == 7) {
-      Serial.println("set orange");
-      pixels->setPixelColor(i, pixels->Color(150, 150, 0));
-    } else {
-      Serial.println("set orange");
-      pixels->setPixelColor(i, pixels->Color(150, 150, 0));
-    }
-
-    pixels->show();   // Send the updated pixel colors to the hardware.
-
-    delay(5); // Pause before next pass through loop
   }
 }
 void blinkGreen() {
