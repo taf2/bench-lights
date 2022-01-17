@@ -37,7 +37,6 @@
 
 #include "wiring_private.h"
 
-#include "SoftwareSerial.h"
 #ifdef __AVR__
 #include <avr/pgmspace.h>
 #endif
