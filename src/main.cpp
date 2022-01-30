@@ -1,6 +1,8 @@
+#include <SPI.h>
 #include <TinyPICO.h>
 #include <Adafruit_NeoPixel.h>
 #include "VoiceRecognitionV3.h"
+#include "DFRobot_SpeechSynthesis.h"
 
 #ifdef __AVR__
  #include <avr/power.h> // Required for 16 MHz Adafruit Trinket
@@ -8,7 +10,7 @@
 
 #define LED_COUNT 90
 
-#define BOSS_TALK_SDA 21
+#define BOSS_TALK_SDA 5
 #define BOSS_TALK_SCL 22
 #define BOSS_LISTEN 15 // indicator light that our boss is listening
 #define BOSS_SERIAL_RX 21  // receive commands from the boss
@@ -24,6 +26,7 @@
 #define EXPAND(VAL)     DO_EXPAND(VAL)
 
 TinyPICO tp = TinyPICO();
+DFRobot_SpeechSynthesis_I2C ss;
 Adafruit_NeoPixel *pixels;
 Adafruit_NeoPixel *pixelStatus;
 
@@ -91,6 +94,15 @@ void setGreenAll() {
 
 VR myVR(BOSS_SERIAL_RX,BOSS_SERIAL_TX);    // 2:RX 3:TX, you can choose your favourite pins.
 
+uint8_t bossListenStart = 0;
+bool bossListening = false;
+int lightMode = 0;
+uint8_t buf[64];
+
+bool isTouched = false;
+bool didFive = false;
+uint64_t touchStart = 0;
+
 void setup() {
   Serial.begin(115200);
 //  Serial2.begin(9600, SERIAL_8N1, BOSS_SERIAL_RX, BOSS_SERIAL_TX);
@@ -118,16 +130,19 @@ void setup() {
     }
   }
   Serial.println("All commands loaded and we're listening");
+
+  ss.begin(true, BOSS_TALK_SDA, BOSS_TALK_SCL);
+  delay(2000);
+  Serial.println("Let everyone know we're ready");
+  ss.speak(F("Hello, i'm here to help.  You can wake me up by saying 'hello'."));
+  Serial.println("Did you hear that?");
+  delay(1000);
+  lightMode  = -1;
+
+  pixelStatus->clear();
+  pixelStatus->setPixelColor(0, pixels->Color(0, 0, 0));
+  pixelStatus->show();   // Send the updated pixel colors to the hardware.
 }
-
-uint8_t bossListenStart = 0;
-bool bossListening = false;
-int lightMode = 0;
-uint8_t buf[64];
-
-bool isTouched = false;
-bool didFive = false;
-uint64_t touchStart = 0;
 
 void loop() {
   if (digitalRead(BOSS_BUTTON) == HIGH) {
@@ -223,6 +238,7 @@ void loop() {
         pixelStatus->show();   // Send the updated pixel colors to the hardware.
       }
     }
+    memset(buf, 0, sizeof(buf));
   } else {
     if (bossListening) {
       uint64_t now = millis();
@@ -257,24 +273,29 @@ void loop() {
     case 0: // wake mode
       digitalWrite(BOSS_LISTEN, HIGH);
       if (!isTouched) {
+        ss.speak(F("How can I help?"));
         pixelStatus->clear();
         pixelStatus->setPixelColor(0, pixels->Color(0, 200, 0));
         pixelStatus->show();   // Send the updated pixel colors to the hardware.
       }
       break;
+    case 5: // bright - but not sure yet
     case 1: // turn the lights on
       digitalWrite(BOSS_LISTEN, LOW);
       setWhiteAll();
       if (!isTouched) {
+        ss.speak(F("Ok Lights On"));
         pixelStatus->clear();
         pixelStatus->setPixelColor(0, pixels->Color(0, 0, 0));
         pixelStatus->show();   // Send the updated pixel colors to the hardware.
       }
       break;
+    case 4: // dim - which i was gonna just use as off
     case 2: // turn the lights off
       digitalWrite(BOSS_LISTEN, LOW);
       setOffAll();
       if (!isTouched) {
+        ss.speak(F("Ok Lights Off"));
         pixelStatus->clear();
         pixelStatus->setPixelColor(0, pixels->Color(0, 0, 0));
         pixelStatus->show();   // Send the updated pixel colors to the hardware.
@@ -284,24 +305,7 @@ void loop() {
       digitalWrite(BOSS_LISTEN, LOW);
       lightTestCycle();
       if (!isTouched) {
-        pixelStatus->clear();
-        pixelStatus->setPixelColor(0, pixels->Color(0, 0, 0));
-        pixelStatus->show();   // Send the updated pixel colors to the hardware.
-      }
-      break;
-    case 4: // dim - which i was gonna just use as off
-      digitalWrite(BOSS_LISTEN, LOW);
-      setOffAll();
-      if (!isTouched) {
-        pixelStatus->clear();
-        pixelStatus->setPixelColor(0, pixels->Color(0, 0, 0));
-        pixelStatus->show();   // Send the updated pixel colors to the hardware.
-      }
-      break;
-    case 5: // bright - but not sure yet
-      digitalWrite(BOSS_LISTEN, LOW);
-      setWhiteAll();
-      if (!isTouched) {
+        ss.speak(F("Ooh Rainbows so Fun!"));
         pixelStatus->clear();
         pixelStatus->setPixelColor(0, pixels->Color(0, 0, 0));
         pixelStatus->show();   // Send the updated pixel colors to the hardware.
@@ -309,7 +313,11 @@ void loop() {
       break;
     default:
       digitalWrite(BOSS_LISTEN, LOW);
-      Serial.printf("I didnt' understand you! %d\n", lightMode);
+      if (bossListening) {
+        ss.speak(F("I didn't understand you!"));
+      } else {
+        Serial.printf("I'm not in boss mode -- %d\n", lightMode);
+      }
       for (int i = 0; i < 3; ++i) {
         pixelStatus->clear();
         pixelStatus->setPixelColor(0, pixels->Color(0, 100, 0));
@@ -323,6 +331,7 @@ void loop() {
 
       break;
     }
+    lightMode = -1;
   }
 }
 
